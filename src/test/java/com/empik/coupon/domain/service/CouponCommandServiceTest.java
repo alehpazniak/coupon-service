@@ -20,17 +20,17 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class CouponServiceTest {
+class CouponCommandServiceTest {
 
     @Mock CouponRepositoryPort couponRepository;
     @Mock CouponUsageRepositoryPort couponUsageRepository;
     @Mock GeolocationPort geolocationPort;
 
-    CouponService service;
+    CouponCommandService commandService;
 
     @BeforeEach
     void setUp() {
-        service = new CouponService(couponRepository, couponUsageRepository, geolocationPort);
+        commandService = new CouponCommandService(couponRepository, couponUsageRepository, geolocationPort);
     }
 
     // =========================================================================
@@ -45,7 +45,7 @@ class CouponServiceTest {
             given(couponRepository.existsByCode("WIOSNA")).willReturn(false);
             given(couponRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
-            Coupon result = service.createCoupon("wiosna", 10, "PL");
+            Coupon result = commandService.createCoupon("wiosna", 10, "PL");
 
             assertThat(result.getCode()).isEqualTo("WIOSNA");
             assertThat(result.getMaxUsages()).isEqualTo(10);
@@ -54,11 +54,11 @@ class CouponServiceTest {
         }
 
         @Test
-        void normalizesCodeToUpperCaseBeforeCheckingForDuplicates() {
+        void normalizesCodeToUpperCase_beforeCheckingForDuplicates() {
             given(couponRepository.existsByCode("WIOSNA")).willReturn(false);
             given(couponRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
-            service.createCoupon("wiosna", 10, "PL");
+            commandService.createCoupon("wiosna", 10, "PL");
 
             then(couponRepository).should().existsByCode("WIOSNA");
             then(couponRepository).should(never()).existsByCode("wiosna");
@@ -68,7 +68,7 @@ class CouponServiceTest {
         void throwsCouponAlreadyExistsException_whenCodeTaken() {
             given(couponRepository.existsByCode("WIOSNA")).willReturn(true);
 
-            assertThatThrownBy(() -> service.createCoupon("WIOSNA", 10, "PL"))
+            assertThatThrownBy(() -> commandService.createCoupon("WIOSNA", 10, "PL"))
                 .isInstanceOf(CouponAlreadyExistsException.class)
                 .hasMessageContaining("WIOSNA");
 
@@ -79,17 +79,17 @@ class CouponServiceTest {
         void throwsCouponAlreadyExistsException_forCodeDifferingOnlyInCase() {
             given(couponRepository.existsByCode("WIOSNA")).willReturn(true);
 
-            assertThatThrownBy(() -> service.createCoupon("wiosna", 5, "PL"))
+            assertThatThrownBy(() -> commandService.createCoupon("wiosna", 5, "PL"))
                 .isInstanceOf(CouponAlreadyExistsException.class);
         }
 
         @Test
-        void savedCouponHasCorrectProperties() {
+        void savedCouponHasNormalizedCodeAndCountry() {
             given(couponRepository.existsByCode(anyString())).willReturn(false);
             given(couponRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
             var captor = ArgumentCaptor.forClass(Coupon.class);
-            service.createCoupon("  summer  ", 50, "de");
+            commandService.createCoupon("  summer  ", 50, "de");
 
             then(couponRepository).should().save(captor.capture());
             Coupon saved = captor.getValue();
@@ -117,7 +117,7 @@ class CouponServiceTest {
             given(couponUsageRepository.existsByCouponAndUserId(coupon, USER_ID)).willReturn(false);
             given(couponRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
-            Coupon result = service.useCoupon("SUMMER", USER_ID, CLIENT_IP);
+            Coupon result = commandService.useCoupon("SUMMER", USER_ID, CLIENT_IP);
 
             assertThat(result.getCurrentUsages()).isEqualTo(1);
             assertThat(result.remainingUsages()).isEqualTo(4);
@@ -132,7 +132,7 @@ class CouponServiceTest {
             given(couponUsageRepository.existsByCouponAndUserId(any(), any())).willReturn(false);
             given(couponRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
-            service.useCoupon("summer", USER_ID, CLIENT_IP);
+            commandService.useCoupon("summer", USER_ID, CLIENT_IP);
 
             then(couponRepository).should().findByCodeWithLock("SUMMER");
             then(couponRepository).should(never()).findByCodeWithLock("summer");
@@ -142,7 +142,7 @@ class CouponServiceTest {
         void throwsCouponNotFoundException_whenCodeDoesNotExist() {
             given(couponRepository.findByCodeWithLock("GHOST")).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.useCoupon("GHOST", USER_ID, CLIENT_IP))
+            assertThatThrownBy(() -> commandService.useCoupon("GHOST", USER_ID, CLIENT_IP))
                 .isInstanceOf(CouponNotFoundException.class)
                 .hasMessageContaining("GHOST");
 
@@ -152,11 +152,11 @@ class CouponServiceTest {
 
         @Test
         void throwsCouponExhaustedException_whenNoUsagesRemain() {
-            Coupon coupon = Coupon.create("FULL", 1, "PL");
-            coupon.use(); // exhaust it
-            given(couponRepository.findByCodeWithLock("FULL")).willReturn(Optional.of(coupon));
+            Coupon exhausted = Coupon.create("FULL", 1, "PL");
+            exhausted.use();
+            given(couponRepository.findByCodeWithLock("FULL")).willReturn(Optional.of(exhausted));
 
-            assertThatThrownBy(() -> service.useCoupon("FULL", USER_ID, CLIENT_IP))
+            assertThatThrownBy(() -> commandService.useCoupon("FULL", USER_ID, CLIENT_IP))
                 .isInstanceOf(CouponExhaustedException.class)
                 .hasMessageContaining("FULL");
 
@@ -165,12 +165,24 @@ class CouponServiceTest {
         }
 
         @Test
+        void checksExhaustion_beforeCallingGeolocation_toAvoidUnnecessaryExternalCall() {
+            Coupon exhausted = Coupon.create("X", 1, "PL");
+            exhausted.use();
+            given(couponRepository.findByCodeWithLock("X")).willReturn(Optional.of(exhausted));
+
+            assertThatThrownBy(() -> commandService.useCoupon("X", USER_ID, CLIENT_IP))
+                .isInstanceOf(CouponExhaustedException.class);
+
+            then(geolocationPort).shouldHaveNoInteractions();
+        }
+
+        @Test
         void throwsCouponCountryMismatchException_whenUserIsFromWrongCountry() {
             Coupon coupon = Coupon.create("PL-ONLY", 10, "PL");
             given(couponRepository.findByCodeWithLock("PL-ONLY")).willReturn(Optional.of(coupon));
             given(geolocationPort.getCountryCode(CLIENT_IP)).willReturn("DE");
 
-            assertThatThrownBy(() -> service.useCoupon("PL-ONLY", USER_ID, CLIENT_IP))
+            assertThatThrownBy(() -> commandService.useCoupon("PL-ONLY", USER_ID, CLIENT_IP))
                 .isInstanceOf(CouponCountryMismatchException.class)
                 .hasMessageContaining("PL-ONLY");
 
@@ -185,7 +197,7 @@ class CouponServiceTest {
             given(geolocationPort.getCountryCode(CLIENT_IP)).willReturn("PL");
             given(couponUsageRepository.existsByCouponAndUserId(coupon, USER_ID)).willReturn(true);
 
-            assertThatThrownBy(() -> service.useCoupon("PROMO", USER_ID, CLIENT_IP))
+            assertThatThrownBy(() -> commandService.useCoupon("PROMO", USER_ID, CLIENT_IP))
                 .isInstanceOf(CouponAlreadyUsedException.class)
                 .hasMessageContaining(USER_ID)
                 .hasMessageContaining("PROMO");
@@ -194,30 +206,17 @@ class CouponServiceTest {
         }
 
         @Test
-        void doesNotSaveUsage_whenGeolocationFails() {
+        void doesNotPersistAnything_whenGeolocationFails() {
             Coupon coupon = Coupon.create("X", 5, "PL");
             given(couponRepository.findByCodeWithLock("X")).willReturn(Optional.of(coupon));
             given(geolocationPort.getCountryCode(CLIENT_IP))
                 .willThrow(new GeolocationServiceException("Service down"));
 
-            assertThatThrownBy(() -> service.useCoupon("X", USER_ID, CLIENT_IP))
+            assertThatThrownBy(() -> commandService.useCoupon("X", USER_ID, CLIENT_IP))
                 .isInstanceOf(GeolocationServiceException.class);
 
             then(couponUsageRepository).shouldHaveNoInteractions();
             then(couponRepository).should(never()).save(any());
-        }
-
-        @Test
-        void checkExhaustedBeforeGeolocation_toAvoidUnnecessaryExternalCall() {
-            Coupon coupon = Coupon.create("X", 1, "PL");
-            coupon.use();
-            given(couponRepository.findByCodeWithLock("X")).willReturn(Optional.of(coupon));
-
-            assertThatThrownBy(() -> service.useCoupon("X", USER_ID, CLIENT_IP))
-                .isInstanceOf(CouponExhaustedException.class);
-
-            // Geolocation must NOT be called when the coupon is already exhausted
-            then(geolocationPort).shouldHaveNoInteractions();
         }
     }
 }

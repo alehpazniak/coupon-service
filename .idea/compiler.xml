@@ -9,10 +9,14 @@
         <module name="coupon-service" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="coupon-service (1)" target="1.8" />
+    </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="coupon-service" options="-parameters" />
+      <module name="coupon-service (1)" options="-parameters" />
     </option>
   </component>
 </project>

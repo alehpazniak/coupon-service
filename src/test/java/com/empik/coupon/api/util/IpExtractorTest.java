@@ -1,6 +1,7 @@
 package com.empik.coupon.api.util;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -17,6 +18,13 @@ class IpExtractorTest {
     @Mock
     HttpServletRequest request;
 
+    IpExtractor ipExtractor;
+
+    @BeforeEach
+    void setUp() {
+        ipExtractor = new IpExtractor();
+    }
+
     @Test
     void returnsRemoteAddr_whenNoProxyHeadersPresent() {
         given(request.getHeader("X-Forwarded-For")).willReturn(null);
@@ -25,37 +33,37 @@ class IpExtractorTest {
         given(request.getHeader("WL-Proxy-Client-IP")).willReturn(null);
         given(request.getRemoteAddr()).willReturn("1.2.3.4");
 
-        assertThat(IpExtractor.extractClientIp(request)).isEqualTo("1.2.3.4");
+        assertThat(ipExtractor.extractClientIp(request)).isEqualTo("1.2.3.4");
     }
 
     @Test
-    void prefersXForwardedForOverRemoteAddr() {
+    void prefersXForwardedFor_overRemoteAddr() {
         given(request.getHeader("X-Forwarded-For")).willReturn("5.6.7.8");
 
-        assertThat(IpExtractor.extractClientIp(request)).isEqualTo("5.6.7.8");
+        assertThat(ipExtractor.extractClientIp(request)).isEqualTo("5.6.7.8");
     }
 
     @Test
-    void extractsFirstIpFromXForwardedForChain() {
+    void extractsFirstIp_fromXForwardedForChain() {
         given(request.getHeader("X-Forwarded-For")).willReturn("5.6.7.8, 10.0.0.1, 192.168.0.1");
 
-        assertThat(IpExtractor.extractClientIp(request)).isEqualTo("5.6.7.8");
+        assertThat(ipExtractor.extractClientIp(request)).isEqualTo("5.6.7.8");
     }
 
     @Test
-    void trimsWhitespaceAroundIpInChain() {
+    void trimsWhitespace_aroundIpInChain() {
         given(request.getHeader("X-Forwarded-For")).willReturn("  5.6.7.8  , 10.0.0.1");
 
-        assertThat(IpExtractor.extractClientIp(request)).isEqualTo("5.6.7.8");
+        assertThat(ipExtractor.extractClientIp(request)).isEqualTo("5.6.7.8");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"unknown", "UNKNOWN", "Unknown"})
-    void skipsXForwardedForWhenValueIsUnknown(String unknownValue) {
+    void skipsHeader_whenValueIsUnknown(String unknownValue) {
         given(request.getHeader("X-Forwarded-For")).willReturn(unknownValue);
         given(request.getHeader("X-Real-IP")).willReturn("9.9.9.9");
 
-        assertThat(IpExtractor.extractClientIp(request)).isEqualTo("9.9.9.9");
+        assertThat(ipExtractor.extractClientIp(request)).isEqualTo("9.9.9.9");
     }
 
     @Test
@@ -63,6 +71,6 @@ class IpExtractorTest {
         given(request.getHeader("X-Forwarded-For")).willReturn("  ");
         given(request.getHeader("X-Real-IP")).willReturn("9.9.9.9");
 
-        assertThat(IpExtractor.extractClientIp(request)).isEqualTo("9.9.9.9");
+        assertThat(ipExtractor.extractClientIp(request)).isEqualTo("9.9.9.9");
     }
 }

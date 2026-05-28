@@ -1,23 +1,21 @@
 package com.empik.coupon.api.controller;
 
 import com.empik.coupon.PostgresIntegrationTest;
+import com.empik.coupon.api.util.IpExtractor;
 import com.empik.coupon.domain.exception.*;
 import com.empik.coupon.domain.model.Coupon;
 import com.empik.coupon.domain.port.GeolocationPort;
-import com.empik.coupon.domain.service.CouponService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.empik.coupon.domain.service.CouponCommandService;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 
-import static org.hamcrest.Matchers.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -26,13 +24,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class CouponControllerIntegrationTest extends PostgresIntegrationTest {
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
+    @Autowired
+    MockMvc mockMvc;
 
-    @MockBean CouponService couponService;
+    @MockBean
+    CouponCommandService couponCommandService;
 
-    // GeolocationPort is mocked globally in tests to prevent live HTTP calls
-    @MockBean GeolocationPort geolocationPort;
+    @MockBean
+    GeolocationPort geolocationPort;
+
+    @MockBean
+    IpExtractor ipExtractor;
 
     // =========================================================================
     // POST /api/coupons
@@ -44,7 +46,7 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
         @Test
         void returns201_withCouponBody_whenRequestIsValid() throws Exception {
             Coupon coupon = Coupon.create("SUMMER", 100, "PL");
-            given(couponService.createCoupon("SUMMER", 100, "PL")).willReturn(coupon);
+            given(couponCommandService.createCoupon("SUMMER", 100, "PL")).willReturn(coupon);
 
             mockMvc.perform(post("/api/coupons")
                     .contentType(MediaType.APPLICATION_JSON)
@@ -61,7 +63,7 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
 
         @Test
         void returns409_whenCouponCodeAlreadyExists() throws Exception {
-            given(couponService.createCoupon(any(), anyInt(), any()))
+            given(couponCommandService.createCoupon(any(), anyInt(), any()))
                 .willThrow(new CouponAlreadyExistsException("SUMMER"));
 
             mockMvc.perform(post("/api/coupons")
@@ -123,7 +125,8 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
         void returns400_whenBodyIsMissing() throws Exception {
             mockMvc.perform(post("/api/coupons")
                     .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MALFORMED_REQUEST"));
         }
     }
 
@@ -142,7 +145,9 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
         void returns200_withRemainingUsages_onSuccess() throws Exception {
             Coupon coupon = Coupon.create("PROMO", 5, "PL");
             coupon.use();
-            given(couponService.useCoupon(eq("PROMO"), eq("user-42"), any())).willReturn(coupon);
+            given(ipExtractor.extractClientIp(any())).willReturn("1.2.3.4");
+            given(couponCommandService.useCoupon(eq("PROMO"), eq("user-42"), eq("1.2.3.4")))
+                .willReturn(coupon);
 
             mockMvc.perform(post("/api/coupons/PROMO/use")
                     .contentType(MediaType.APPLICATION_JSON)
@@ -155,7 +160,8 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
 
         @Test
         void returns404_whenCouponNotFound() throws Exception {
-            given(couponService.useCoupon(any(), any(), any()))
+            given(ipExtractor.extractClientIp(any())).willReturn("1.2.3.4");
+            given(couponCommandService.useCoupon(any(), any(), any()))
                 .willThrow(new CouponNotFoundException("GHOST"));
 
             mockMvc.perform(post("/api/coupons/GHOST/use")
@@ -167,7 +173,8 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
 
         @Test
         void returns409_whenCouponIsExhausted() throws Exception {
-            given(couponService.useCoupon(any(), any(), any()))
+            given(ipExtractor.extractClientIp(any())).willReturn("1.2.3.4");
+            given(couponCommandService.useCoupon(any(), any(), any()))
                 .willThrow(new CouponExhaustedException("FULL"));
 
             mockMvc.perform(post("/api/coupons/FULL/use")
@@ -179,7 +186,8 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
 
         @Test
         void returns403_whenUserIsFromWrongCountry() throws Exception {
-            given(couponService.useCoupon(any(), any(), any()))
+            given(ipExtractor.extractClientIp(any())).willReturn("1.2.3.4");
+            given(couponCommandService.useCoupon(any(), any(), any()))
                 .willThrow(new CouponCountryMismatchException("PL-ONLY", "PL", "DE"));
 
             mockMvc.perform(post("/api/coupons/PL-ONLY/use")
@@ -191,7 +199,8 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
 
         @Test
         void returns409_whenUserAlreadyUsedThisCoupon() throws Exception {
-            given(couponService.useCoupon(any(), any(), any()))
+            given(ipExtractor.extractClientIp(any())).willReturn("1.2.3.4");
+            given(couponCommandService.useCoupon(any(), any(), any()))
                 .willThrow(new CouponAlreadyUsedException("PROMO", "user-42"));
 
             mockMvc.perform(post("/api/coupons/PROMO/use")
@@ -203,7 +212,8 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
 
         @Test
         void returns503_whenGeolocationServiceIsDown() throws Exception {
-            given(couponService.useCoupon(any(), any(), any()))
+            given(ipExtractor.extractClientIp(any())).willReturn("1.2.3.4");
+            given(couponCommandService.useCoupon(any(), any(), any()))
                 .willThrow(new GeolocationServiceException("Service unreachable"));
 
             mockMvc.perform(post("/api/coupons/X/use")
@@ -225,9 +235,10 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
         }
 
         @Test
-        void extractsClientIpFromXForwardedForHeader() throws Exception {
+        void passesExtractedIp_toCommandService() throws Exception {
             Coupon coupon = Coupon.create("IP-TEST", 5, "PL");
-            given(couponService.useCoupon(eq("IP-TEST"), eq("user-1"), eq("5.6.7.8")))
+            given(ipExtractor.extractClientIp(any())).willReturn("5.6.7.8");
+            given(couponCommandService.useCoupon(eq("IP-TEST"), eq("user-1"), eq("5.6.7.8")))
                 .willReturn(coupon);
 
             mockMvc.perform(post("/api/coupons/IP-TEST/use")
@@ -237,6 +248,8 @@ class CouponControllerIntegrationTest extends PostgresIntegrationTest {
                         {"userId":"user-1"}
                         """))
                 .andExpect(status().isOk());
+
+            then(couponCommandService).should().useCoupon("IP-TEST", "user-1", "5.6.7.8");
         }
     }
 }

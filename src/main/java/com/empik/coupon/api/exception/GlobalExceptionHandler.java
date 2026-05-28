@@ -65,9 +65,9 @@ class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    ResponseEntity<ApiError> handleUnreadableRequestBody(HttpMessageNotReadableException ex) {
+    ResponseEntity<ApiError> handleMessageNotReadable(HttpMessageNotReadableException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .body(ApiError.of(400, "MALFORMED_REQUEST", "Request body is missing or malformed"));
+            .body(ApiError.of(400, "MALFORMED_REQUEST", "Request body is missing or cannot be parsed"));
     }
 
     @ExceptionHandler(Exception.class)

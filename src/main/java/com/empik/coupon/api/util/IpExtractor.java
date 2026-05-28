@@ -1,18 +1,21 @@
 package com.empik.coupon.api.util;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.stereotype.Component;
 
 /**
  * Extracts the originating client IP address from an HTTP request.
  *
- * <p>Checks well-known proxy headers before falling back to the direct remote address.
- * When {@code X-Forwarded-For} contains a chain of IPs (client, proxy1, proxy2 …),
- * the leftmost (originating) address is returned.
+ * <p>Checks well-known reverse-proxy headers before falling back to the direct
+ * remote address. When {@code X-Forwarded-For} contains a chain of addresses
+ * (client, proxy1, proxy2 …) the leftmost — originating — address is returned.
  *
- * <p>In production, ensure that your reverse proxy (nginx, AWS ALB, etc.) is the only
- * entity trusted to set these headers — otherwise they can be spoofed by clients.
+ * <p><strong>Security note:</strong> in production this component must sit behind
+ * a trusted reverse proxy (nginx, AWS ALB, …) that is the only entity allowed to
+ * set these headers. Without that boundary a client can spoof an arbitrary IP.
  */
-public final class IpExtractor {
+@Component
+public class IpExtractor {
 
     private static final String[] PROXY_HEADERS = {
         "X-Forwarded-For",
@@ -21,15 +24,17 @@ public final class IpExtractor {
         "WL-Proxy-Client-IP"
     };
 
-    private IpExtractor() {}
-
-    public static String extractClientIp(HttpServletRequest request) {
+    public String extractClientIp(HttpServletRequest request) {
         for (String header : PROXY_HEADERS) {
             String value = request.getHeader(header);
-            if (value != null && !value.isBlank() && !"unknown".equalsIgnoreCase(value)) {
+            if (isValidIpHeaderValue(value)) {
                 return value.split(",")[0].trim();
             }
         }
         return request.getRemoteAddr();
+    }
+
+    private boolean isValidIpHeaderValue(String value) {
+        return value != null && !value.isBlank() && !"unknown".equalsIgnoreCase(value);
     }
 }

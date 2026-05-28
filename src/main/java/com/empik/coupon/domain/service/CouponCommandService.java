@@ -12,15 +12,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class CouponService {
+public class CouponCommandService {
 
-    private static final Logger log = LoggerFactory.getLogger(CouponService.class);
+    private static final Logger log = LoggerFactory.getLogger(CouponCommandService.class);
 
     private final CouponRepositoryPort couponRepository;
     private final CouponUsageRepositoryPort couponUsageRepository;
     private final GeolocationPort geolocationPort;
 
-    public CouponService(
+    public CouponCommandService(
             CouponRepositoryPort couponRepository,
             CouponUsageRepositoryPort couponUsageRepository,
             GeolocationPort geolocationPort) {
@@ -49,14 +49,17 @@ public class CouponService {
     /**
      * Registers a coupon usage for the given user.
      *
-     * <p>A pessimistic write lock is acquired on the coupon row for the duration of the transaction,
-     * ensuring that concurrent requests for the same coupon are serialized. This prevents
-     * over-counting (exceeding maxUsages) under high concurrency without requiring application-level
-     * retry logic.</p>
+     * <p>A pessimistic write lock is acquired on the coupon row for the duration of the
+     * transaction, ensuring concurrent requests for the same coupon are serialized at the
+     * database level. This makes the check-then-increment sequence atomic without requiring
+     * application-level retry logic.
      *
-     * @param code      coupon code (case-insensitive)
-     * @param userId    identifier of the user attempting to use the coupon
-     * @param clientIp  the originating IP address, used for country resolution
+     * <p>Validation order is deliberate — exhaustion is checked before geolocation to
+     * avoid an unnecessary external HTTP call when the coupon is already spent.
+     *
+     * @param code     coupon code (case-insensitive)
+     * @param userId   identifier of the user attempting to use the coupon
+     * @param clientIp originating IP address, used for country resolution
      * @return the updated coupon after a successful use
      */
     @Transactional
