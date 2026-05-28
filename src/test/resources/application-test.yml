@@ -1,0 +1,10 @@
+geolocation:
+  base-url: http://ip-api.com
+  bypass-private-ips: false
+  bypass-country: PL
+
+logging:
+  level:
+    com.empik.coupon: WARN
+    org.testcontainers: WARN
+    tc: WARN
